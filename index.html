@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html>
+<meta charset="utf-8">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="http://code.jquery.com/ui/1.11.1/themes/smoothness/jquery-ui.css">
+  <script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+  <script src="http://code.jquery.com/ui/1.11.1/jquery-ui.js"></script>
+  <script src="http://d3js.org/d3.v3.min.js"></script>
+</head>
+<style>
+
+@import url(../style.css?aea6f0a);
+
+#chart {
+  margin-left: -40px;
+  height: 506px;
+}
+
+text {
+  font: 10px sans-serif;
+}
+
+.dot {
+  stroke: #000;
+}
+
+.axis path, .axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.label {
+  fill: #777;
+}
+
+.year.label {
+  font: 500 196px "Helvetica Neue";
+  fill: #ddd;
+}
+
+.year.label.active {
+  fill: #aaa;
+}
+
+.overlay {
+  fill: none;
+  pointer-events: all;
+  cursor: ew-resize;
+}
+
+</style>
+
+<body>
+<p>
+ <title>ELF D3 DEMO</title>
+</p>
+<h1>ELF D3 DEMO</h1>
+<p>
+  <label for="amount">API Version Range:</label>
+  <input type="text" id="amount" readonly style="border:0; color:#f6931f; font-weight:bold;"> 
+  <div id="slider-range"  style="width:1000px"</div>
+</p> 
+ 
+</body>
+
+<p id="chart"></p>
+
+<aside>Mouseover the day to move forward and backwards through time.</aside>
+color
+
+<script>
+jQuery(document).ready(function($) {
+	//used for parsing dates
+	var format = d3.time.format("%Y-%m-%d");
+	var startDate = 1388631964000;
+	var endDate =   1412035200000;
+        var minApiVersion=3;
+	var maxApiVersion=32;
+
+	$( "#slider-range" ).slider({
+	      range: true,
+	      min: 3,
+	      max: 32,
+	      values: [ 3, 32 ],
+	      slide: function( event, ui ) {
+		$( "#amount" ).val( ui.values[0] + " - " + ui.values[1] );
+		minApiVersion = ui.values[0];
+		maxApiVersion = ui.values[1];
+	      }
+	});
+	$( "#amount" ).val( $( "#slider-range" ).slider( "values", 0 ) + " - " + $( "#slider-range" ).slider( "values", 1 ) );
+
+	// Various accessors that specify the four dimensions of data to visualize.
+	function x(d) { return d.count; }
+	function y(d) { return d.avg_rows_processed; }
+	function color(d) { return +d.api_version; }
+	function key(d) { return d.api_version; }
+
+	// Chart dimensions.
+	var margin = {top: 19.5, right: 19.5, bottom: 19.5, left: 89.5},
+	    width = 1000 - margin.right - margin.left,
+	    height = 500 - margin.top - margin.bottom;
+
+	// x-axis, y-axis are log scale, the domain is set based on the range of the data
+	var xScale = d3.scale.log().domain([1, 3000000]).range([0, width]),
+	    yScale = d3.scale.log().domain([1, 600000]).range([height, 0]);
+	// color of the dots ranges from red to green (older to newer api versions)
+	var colorScale = d3.scale.linear()
+	    .domain([3, 15, 32])
+	    .range(["red", "white", "green"]);
+
+	// The x & y axes.
+	var xAxis = d3.svg.axis().orient("bottom").scale(xScale).ticks(10, d3.format(",d")),
+	    yAxis = d3.svg.axis().scale(yScale).orient("left").ticks(10, d3.format(",d"));
+
+	// Create the SVG container and set the origin.
+	var svg = d3.select("#chart").append("svg")
+	    .attr("width", width + margin.left)
+	    .attr("height", height + margin.top + margin.bottom)
+	  .append("g")
+	    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+	// Add the x-axis.
+	svg.append("g")
+	    .attr("class", "x axis")
+	    .attr("transform", "translate(0," + height + ")")
+	    .call(xAxis);
+
+	// Add the y-axis.
+	svg.append("g")
+	    .attr("class", "y axis")
+	    .call(yAxis);
+
+	// Add an x-axis label.
+	svg.append("text")
+	    .attr("class", "x label")
+	    .attr("text-anchor", "end")
+	    .attr("x", width)
+	    .attr("y", height - 6)
+	    .text("count of api calls");
+
+	// Add a y-axis label.
+	svg.append("text")
+	    .attr("class", "y label")
+	    .attr("text-anchor", "end")
+	    .attr("y", 6)
+	    .attr("dy", ".75em")
+	    .attr("transform", "rotate(-90)")
+	    .text("average number of rows processed");
+
+	// Add the year label; the value is set on transition.
+	var label = svg.append("text")
+	    .style("font-size","70px")
+	    .attr("class", "year label")
+	    .attr("text-anchor", "end")
+	    .attr("y", height - 24)
+	    .attr("x", width)
+	    .text(format(new Date(startDate)));
+
+
+	// Load the data.
+	//apiData-oldVersions.	
+	d3.json("apiData.json", function(apiDataRows) {	
+	  // A bisector that returns the first value of an array, in our case the date
+	  var bisect = d3.bisector(function(d) { return d[0]; });
+
+	  // Add a dot per api version. Initialize the data at startDate, and set the colors.
+	  var dot = svg.append("g")
+	      .attr("class", "dot")
+	    .selectAll(".dot")
+	      .data(getData(startDate))
+	    .enter().append("circle")
+	      .attr("class", "dot")
+	      .style("fill", function(d) { return colorScale(color(d)); })
+	      .call(position);
+
+	  var dotlabel = svg.append("g")
+	      .attr("class", "dotslabels")
+	    .selectAll(".dotslabels")
+	      .data(getData(startDate))
+	    .enter().append("text")
+	      .attr("text-anchor", "middle")
+	      .attr("dy", ".3em")
+	      .attr("class", "dotslabels")
+	      .call(positionlabels);
+
+	  // Add an overlay for the year label.
+	  var box = label.node().getBBox();
+
+	  var overlay = svg.append("rect")
+		.attr("class", "overlay")
+		.attr("x", box.x)
+		.attr("y", box.y)
+		.attr("width", box.width)
+		.attr("height", box.height)
+		.on("mouseover", enableInteraction);
+
+	  // Start a transition that interpolates the data based on year.
+	  svg.transition()
+	      .duration(30000)
+	      .ease("linear")
+	      .tween("year", tweenYear)
+	      .each("end", enableInteraction);
+
+	  // Positions the dots based on data.
+	  function position(dot) {
+	    dot .attr("cx", function(d) { return xScale(x(d)); })
+		.attr("cy", function(d) { return yScale(y(d)); })
+		.attr("r", 20);
+	  }
+
+	  // Positions the dots based on data.
+	  function positionlabels(dotlabel) {
+	    dotlabel.attr("x", function(d) { return xScale(x(d)); })
+		     .attr("y", function(d) { return yScale(y(d)); })
+		     .text(function(d) { return d.api_version; });
+	  }
+
+
+	  // After the transition finishes, you can mouseover to change the year.
+	  function enableInteraction() {
+	    var yearScale = d3.scale.linear()
+		.domain([startDate, endDate])
+		.range([box.x + 10, box.x + box.width - 10])
+		.clamp(true);
+
+	    // Cancel the current transition, if any.
+	    svg.transition().duration(0);
+
+	    overlay
+		.on("mouseover", mouseover)
+		.on("mouseout", mouseout)
+		.on("mousemove", mousemove)
+		.on("touchmove", mousemove);
+
+	    function mouseover() {
+	      label.classed("active", true);
+	    }
+
+	    function mouseout() {
+	      label.classed("active", false);
+	    }
+
+	    function mousemove() {
+	      displayDate(yearScale.invert(d3.mouse(this)[0]));
+	    }
+	  }
+
+	  // Tweens the entire chart by first tweening the year, and then the data.
+	  // For the interpolated data, the dots and label are redrawn.
+	  function tweenYear() {
+	    var dateInterpolator = d3.interpolateNumber(startDate, endDate);
+	    return function(t) { displayDate(dateInterpolator(t)); };
+	  }
+
+	  // Updates the display to show the specified date.
+	  function displayDate(time) {
+	    date = new Date(time);
+	    dot.data(getData(time), key).call(position);
+	    dotlabel.data(getData(time), key).call(positionlabels);
+	    label.text(format(date));
+	  }
+
+	  // Interpolates the dataset for the given (fractional) date.
+	  function getData(time) { 
+	    return apiDataRows.map(function(d) {
+		return { 
+		  api_version: d.api_version,
+		  avg_rows_processed: interpolateValues(d.api_version, d.avg_rows_processed, time),
+		  count: interpolateValues(d.api_version, d.count, time)
+	        };
+	    });
+	  }
+
+	  // Finds (and possibly interpolates) the value for the specified year.
+	  function interpolateValues(apiVersion, values, time) { 
+            if (apiVersion<minApiVersion || apiVersion>maxApiVersion) {
+		return 10000000000;
+	    }
+	    // only interpolate if we have any data for the given time
+	    var interpolatedVal=-1;
+	    if (values[0][0]<=time && time<=values[values.length - 1][0]) {
+	      var i = bisect.left(values, time, 0, values.length - 1),
+		  a = values[i];  
+	      if (i > 0) {
+		var b = values[i - 1],
+		    t = (time - a[0]) / (b[0] - a[0]);
+		interpolatedVal=a[1] * (1 - t) + b[1] * t;
+	      }
+	      interpolatedVal=a[1];
+	    }
+	    // else draw the data point off chart
+	    return interpolatedVal<1? 10000000000 : interpolatedVal;
+	  }
+
+	});
+}); //jQuery Ends
+</script>
